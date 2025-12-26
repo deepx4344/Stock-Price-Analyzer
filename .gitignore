@@ -44,3 +44,5 @@
 .vscode
 data
 output
+*.txt
+a.md

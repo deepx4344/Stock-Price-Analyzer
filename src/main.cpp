@@ -29,9 +29,14 @@ struct MAResult
     double low;
     double open;
     double close;
-    double SMA = 0;
-    double EMA = 0;
-    double TrueRange = 0;
+    double simpleMovingAverage = 0;
+    double exponentialMovingAverage = 0;
+    double trueRange = 0;
+    double change = 0.0;
+    double averageGain = 0.0;
+    double averageLoss = 0.0;
+    double averageTrueRange = 0;
+    double relativeStrengthIndex = 0;
 };
 
 void readFileAndParseThenPushToVector(std::string &path, std::vector<stockDayData> &allStockData)
@@ -99,116 +104,187 @@ void readFileAndParseThenPushToVector(std::string &path, std::vector<stockDayDat
     }
     LOG("Finished Reading the File");
 }
-
 void sortVector(std::vector<stockDayData> &allStockData)
 {
     LOG("Now Sorting the Data...");
     sort(allStockData.begin(), allStockData.end(), [](const stockDayData &a, const stockDayData &b)
-         { return a.date > b.date; });
+         { return a.date < b.date; });
     LOG("Finished Sorting the Data");
+}
+void sortResult(std::vector<MAResult> &MAResults)
+{
+    sort(MAResults.begin(), MAResults.end(), [](const MAResult &a, const MAResult &b)
+         { return a.date > b.date; });
 }
 int getSize(std::vector<stockDayData> &allStockData)
 {
     return allStockData.size();
 }
 
-double calcInitialSum(const std::vector<stockDayData> &allStockData, const unsigned int &duration, bool fromBack)
+double calcInitialSum(const std::vector<stockDayData> &allStockData, const unsigned int &duration)
 {
     double Sum = 0;
     int length = allStockData.size();
     if (length < duration || duration <= 0)
-        return -1;
-    if (fromBack)
+        throw std::invalid_argument("Duration Cannot be greater than the length of the dataSet");
+    for (int i = 0; i < duration; i++)
     {
-        for (int i = length - 1; i >= length - duration; i--)
-        {
-            Sum += allStockData[i].close;
-        }
-    }
-    else
-    {
-        for (int i = 0; i < duration; i++)
-        {
-            Sum += allStockData[i].close;
-        }
+        std::cout << i << std::endl;
+        Sum += allStockData[i].close;
     }
     return Sum;
 }
-
 void simpleMovingAverage(const std::vector<stockDayData> &allStockData, const unsigned int &duration, std::vector<MAResult> &MAResults)
 {
     LOG("Analying Data");
     int length = allStockData.size();
     if (length < duration || duration <= 0)
-        return;
-    double Sum = calcInitialSum(allStockData, duration, false);
+        throw std::invalid_argument("Duration Cannot be greater than the length of the dataSet");
     MAResult current;
-    current.date = allStockData[0].date;
-    current.open = allStockData[0].open;
-    current.close = allStockData[0].close;
-    current.high = allStockData[0].high;
-    current.low = allStockData[0].low;
-    current.name = allStockData[0].name;
-    current.SMA = Sum / duration;
-    MAResults.push_back(current);
-    for (int i = 1; i <= length - duration; i++)
+    for (int i = 0; i <= duration - 2; i++)
     {
         current.date = allStockData[i].date;
+        current.open = allStockData[i].open;
         current.close = allStockData[i].close;
+        current.high = allStockData[i].high;
+        current.low = allStockData[i].low;
         current.name = allStockData[i].name;
-        Sum = Sum - allStockData[i - 1].close + allStockData[i + duration - 1].close;
-        current.SMA = Sum / duration;
         MAResults.push_back(current);
     }
-    LOG("Finished Analying Data");
+    double Sum = calcInitialSum(allStockData, duration);
+    current.date = allStockData[duration - 1].date;
+    current.open = allStockData[duration - 1].open;
+    current.close = allStockData[duration - 1].close;
+    current.high = allStockData[duration - 1].high;
+    current.low = allStockData[duration - 1].low;
+    current.name = allStockData[duration - 1].name;
+    current.simpleMovingAverage = Sum / duration;
+    MAResults.push_back(current);
+    for (int i = duration; i < length; i++)
+    {
+        current.date = allStockData[i].date;
+        current.open = allStockData[i].open;
+        current.close = allStockData[i].close;
+        current.high = allStockData[i].high;
+        current.low = allStockData[i].low;
+        current.name = allStockData[i].name;
+        Sum = Sum - allStockData[i - duration].close + allStockData[i].close;
+        current.simpleMovingAverage = Sum / duration;
+        MAResults.push_back(current);
+    }
 }
 
 void exponentialMovingAverage(const std::vector<stockDayData> &allStockData, const unsigned int &duration, std::vector<MAResult> &MAResults)
 {
-    LOG("Now calculating EMA");
+    LOG("Now calculating exponentialMovingAverage");
     double multiplier = 2.0 / (duration + 1.0);
-    double InitialSMA = (calcInitialSum(allStockData, duration, true)) / duration;
+    double InitialSMA = (calcInitialSum(allStockData, duration)) / duration;
     int length = allStockData.size();
-    int total = length - duration + 1;
-    MAResults[total - 1].EMA = InitialSMA;
-    for (int i = total - 2; i >= 0; i--)
+    MAResults[duration - 1].exponentialMovingAverage = InitialSMA;
+    for (int i = duration; i < length; i++)
     {
-        double EMA = (MAResults[i].close * multiplier) + (MAResults[i + 1].EMA * (1.0 - multiplier));
-        MAResults[i].EMA = EMA;
+        double exponentialMovingAverage = (MAResults[i].close * multiplier) + (MAResults[i - 1].exponentialMovingAverage * (1.0 - multiplier));
+        MAResults[i].exponentialMovingAverage = exponentialMovingAverage;
     }
-    LOG("Done With EMA");
+    LOG("Done With exponentialMovingAverage");
 }
 void calculateTrueRange(const unsigned int &duration, std::vector<MAResult> &MAResults)
 {
     LOG("Now True Range");
-    int length = MAResults.size() - 2;
-    for (int i = length; i >= 0; i--)
+    int length = MAResults.size();
+    MAResults[0].trueRange = MAResults[0].high - MAResults[0].low;
+    for (int i = 1; i < length; i++)
     {
         double highLow = MAResults[i].high - MAResults[i].low;
-        double highClose = std::abs(MAResults[i].high - MAResults[i + 1].close);
-        double lowPrevClose = std::abs(MAResults[i].low - MAResults[i + 1].close);
+        double highClose = std::abs(MAResults[i].high - MAResults[i - 1].close);
+        double lowPrevClose = std::abs(MAResults[i].low - MAResults[i - 1].close);
 
         double trueRange = std::max({highLow, highClose, lowPrevClose});
-        MAResults[i].TrueRange = trueRange;
+        MAResults[i].trueRange = trueRange;
     }
 }
-// double calculateInitialAtr(const std::vector<stockDayData> &allStockData, const unsigned int &duration)
-// {
-//     double InitialAtr = 0;
-//     int length = allStockData.size() - 1;
-//     int last = 0;
-//     for (int i = length; i > length - duration; i--)
-//     {
-//         // InitialAtr += MAResults[i].TrueRange;
-//         last = i;
-//     }
-//     std::cout << "last >> " << last << std::endl;
-//     InitialAtr = InitialAtr / duration;
-// }
+double calculateInitialAtr(const std::vector<MAResult> &MAResults, const unsigned int &duration)
+{
+    double Sum = 0.0;
+    for (int i = 0; i < duration; i++)
+    {
+        Sum += MAResults[i].trueRange;
+    }
+    return Sum / duration;
+}
 
 void calculateAverageTrueRange(const unsigned int &duration, std::vector<MAResult> &MAResults)
 {
-    double InitialAtr = 0;
+    int atrSmoothning = duration;
+    int length = MAResults.size();
+    double InitialAtr = calculateInitialAtr(MAResults, atrSmoothning);
+    MAResults[atrSmoothning - 1].averageTrueRange = InitialAtr;
+    double averageTrueRange = 0.0;
+    for (int i = atrSmoothning; i < length; i++)
+    {
+        averageTrueRange = ((MAResults[i - 1].averageTrueRange * 13) + MAResults[i].trueRange) / 14;
+        MAResults[i].averageTrueRange = averageTrueRange;
+    }
+}
+void calculateChange(std::vector<MAResult> &MAResults)
+{
+    int length = MAResults.size();
+    for (int i = 1; i < length; i++)
+    {
+        MAResults[i].change = MAResults[i].close - MAResults[i - 1].close;
+    }
+}
+void calculateAverages(std::vector<MAResult> &MAResults, const unsigned int &duration)
+{
+    int rsiSmoothning = duration;
+    int length = MAResults.size();
+    double Gain = 0.0;
+    double Loss = 0.0;
+    for (int i = 1; i <= rsiSmoothning; i++)
+    {
+        if (MAResults[i].change > 0)
+        {
+            Gain += MAResults[i].change;
+        }
+        else
+        {
+            Loss += std::abs(MAResults[i].change);
+        }
+    }
+    MAResults[rsiSmoothning].averageGain = Gain / rsiSmoothning;
+    MAResults[rsiSmoothning].averageLoss = Loss / rsiSmoothning;
+}
+
+void calculateRelativeStrengthIndex(const unsigned int &duration, std::vector<MAResult> &MAResults)
+{
+    calculateChange(MAResults);
+    calculateAverages(MAResults, duration);
+    int rsiSmoothning = duration;
+    int length = MAResults.size();
+    double relativeStrength = MAResults[rsiSmoothning].averageGain / MAResults[rsiSmoothning].averageLoss;
+    double relativeStrengthIndex = 100 - (100 / (1 - relativeStrength));
+    MAResults[rsiSmoothning].relativeStrengthIndex = relativeStrengthIndex;
+    double averageGain = 0.0;
+    double averageLoss = 0.0;
+    for (int i = rsiSmoothning + 1; i < length; i++)
+    {
+        double gain;
+        double loss;
+        auto current = MAResults[i];
+        if (current.change > 0)
+        {
+            gain = current.change;
+        }
+        else if (current.change < 0)
+        {
+            loss = current.change;
+        }
+        averageGain = ((MAResults[i - 1].averageGain * (rsiSmoothning - 1)) + gain) / rsiSmoothning;
+        averageLoss = ((MAResults[i - 1].averageLoss * (rsiSmoothning - 1)) + std::abs(loss)) / rsiSmoothning;
+        relativeStrength = averageGain / averageLoss;
+        relativeStrengthIndex = 100 - (100 / (1 - relativeStrength));
+        MAResults[i].relativeStrengthIndex = relativeStrengthIndex;
+    }
 }
 
 void writeToFile(const std::vector<MAResult> &MAResults)
@@ -217,11 +293,11 @@ void writeToFile(const std::vector<MAResult> &MAResults)
     LOG(MAResults.size());
     std::string outputFilePath = "./output/xxx.csv";
     std::ofstream OutputFile(outputFilePath);
-    OutputFile << "Name" << "," << "Date" << "," << "Close" << "," << "Simple Moving Average" << "," << "Exponential Moving Average" << "," << "True Range" << std::endl;
+    OutputFile << "Name" << "," << "Date" << "," << "Close" << "," << "high" << "," << "low" << "," << "Simple Moving Average" << "," << "Exponential Moving Average" << "," << "True Range" << "," << "Average True Range" << "," << "Relative Strength Index" << std::endl;
     for (int i = 0; i < MAResults.size(); i++)
     {
         MAResult cur = MAResults[i];
-        OutputFile << cur.name << "," << cur.date << "," << cur.close << "," << cur.SMA << "," << cur.EMA << "," << cur.TrueRange << std::endl;
+        OutputFile << cur.name << "," << cur.date << "," << cur.close << "," << cur.high << "," << cur.low << "," << cur.simpleMovingAverage << "," << cur.exponentialMovingAverage << "," << cur.trueRange << "," << cur.averageTrueRange << "," << cur.relativeStrengthIndex << std::endl;
     }
 }
 
@@ -241,9 +317,11 @@ int main()
     sortVector(allStockData);
     simpleMovingAverage(allStockData, duration, MAResults);
     exponentialMovingAverage(allStockData, duration, MAResults);
-    calculateTrueRange(duration, MAResults);
-    // writeToFile(MAResults);
+    calculateTrueRange(14, MAResults);
+    // sortResult(MAResults);
     calculateAverageTrueRange(duration, MAResults);
+    calculateRelativeStrengthIndex(duration, MAResults);
+    writeToFile(MAResults);
     LOG("Processing Done");
     return 0;
 }
